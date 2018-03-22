@@ -11,12 +11,12 @@ class Rundeck < Formula
   if @@testing and @@prebuilt
     url local_url
     puts "==> Using #{local_url} in testing mode"
+    version "2.10.6"
   else
     url remote_url
     sha256 "b6dde4ae74ad00a3c2fac3b05f894cf3e2d9e7e8e27a118e64d15813619f4458"
     puts "==> Using #{remote_url} in testing mode" if @@testing
   end
-  version "2.10.6"
   depends_on :java => "1.8"
   def install
     # comment this line when testing
