@@ -5,92 +5,91 @@
 
 use Modern::Perl qw/2012/;
 use Path::Tiny;
-use YAML::Tiny;
 use JSON::MaybeXS;
+use List::Util qw/first/;
 
 my @files;
-my $nodes=YAML::Tiny->new({});
+my $nodes={};
 my %RE;
+my $include_username=1;
 my $username;
-my $json=JSON->new->pretty->canonical->allow_blessed->convert_blessed;
+my $include_known_hosts_file=1;
+my $include_ips=1;
+my $include_comment;
+my $json=JSON->new->canonical->allow_blessed->convert_blessed->allow_nonref;
+my $cache={};
 
-# Common regular expressions for later use
-$RE{dec255} = qr{ (?: 2 5 [0-5] | 2 [0-4] [0-9] | [01]? [0-9]? [0-9] ) }x;
-$RE{dec31} = qr{ (?: [0-9] | [1-2] [0-9] | 3 [0-2] ) }x;
-$RE{ipv4} = qr{ (?: (?: $RE{dec255} \. ){3} $RE{dec255} ) ( \/ ( $RE{dec31} ) )? }x;
-$RE{ipv6} = qr{ (?: [0-9a-f:]{3,} ) }x;
-$RE{dnsseg} = qr{ (?: [a-z0-9\-]{1,255} ) }x;
-$RE{hostname} = qr{ (?: (?: $RE{dnsseg} \. )* $RE{dnsseg} ) }x;
-$RE{dnspat} = qr{ (?: [a-z0-9\-\*\?]{1,255} ) }x;
-$RE{hostpat} = qr{ (?: (?: $RE{dnspat} \. )* $RE{dnspat} ) }x;
-$RE{optport} = qr{ (?: : ( \d{1,5} ) )? }x;
+sub maybe_encode {
+  my $string=shift;
+  return $string unless ($string =~ m{[^a-z0-9_\-:=\+%/\.]}i);
+  return $json->encode($string);
+}
 
-# A known_hosts file can contain multiple different types of patterns
-sub parse_host_pattern {
-  my $entry=shift;
-  my $pattern={ port => 22 };
-  # [name] or [name]:port
-  if ($entry =~ s{^!}{}) {
-    $pattern->{negate} = 1;
+sub sortable {
+  my $string=shift;
+  if ($string =~ m{^(?:\d{1,3}\.){3}\d{1,3}$}) {
+    $string =~ s{(\d+)}{sprintf "%03d", $1}eg;
+    $string="02-$string";
   }
-  if ($entry =~ m{\A \[ ($RE{hostname} | $RE{ipv4} | $RE{ipv6} ) \] $RE{optport} \z}x) {
-    $pattern->{name}=$1;
-    $pattern->{port}=$2 if (defined $2 and length $2);
-  }
-  elsif ($entry =~ m{\A ( $RE{hostname} | $RE{ipv4} | $RE{ipv6} ) \z}x) {
-    $pattern->{name}=$1;
-  }
-  elsif ($entry =~ m{\A ( $RE{ipv4} ) $RE{optport} }x) {
-    $pattern->{name}=$1;
-    $pattern->{port}=$2 if (defined $2 and length $2);
+  elsif ($string =~ m{^[0-9a-f:]*?:[0-9a-f:]*$}) {
+    my ($a, $b) = split /::/, $string;
+    my @a=map { '0'x(4 - length $_) . $_ } split /:/, $a;
+    my @b=map { '0'x(4 - length $_) . $_ } split /:/, $b;
+    unshift @b, '0000' while (@a + @b < 8);
+    $string="01-" . join ':', @a, @b;
   }
   else {
-    return; # did not parse!
+    $string="00-" . join '.', reverse split /\./, $string =~ s{(\d+)}{sprintf '%09d', $1}egr;
   }
-  return $pattern;
+  return $string;
+}
+
+sub sort_by_nodename {
+  ($cache->{$a} //= sortable $a) cmp ($cache->{$b} //= sortable $b);
 }
 
 sub parse_kh_entry {
   my $line=shift;
   my $filename=shift;
   my $lineno=shift;
-  my %entry=( _line => $line );
-  my %record=(osFamily => 'unix', known_hosts_file => $filename->stringify );
-  my @patterns;
+  my @names;
+  my $entry={
+     osType => 'unix',
+     _line => $line,
+  };
+  my $port;
 
-  # skip blank lines and comment lines
-  return if ($line =~ m{\A \s* (?: # .* )? \z});
+  # skip blank lines, comments, and markers (@cert-authority or @revoked)
+  return if ($line =~ m{^\s* (?: [\#\@] .* ) $}x);
+  $line =~ s{^\s*(\S+)\s.*$}{$1}; # remove everything after the first whitespace
+  @names=split /,/, $line; # get the individual patterns
 
-  if ($line =~ m{\A (?: \@ (cert-authority | revoked) \s+ )? \s* (\S+) \s+ (\S+) \s+ (\S+) (?: \s* (\S .*?) )? \s* \z}x) {
-    $entry{marker} = $1 if (defined $1 and length $1);
-    $entry{patterns}=[split /,/, $2];
-    $entry{type}=$3;
-    $entry{key}=$4;
-    $record{known_hosts_comment}=$5 if (defined $5 and length $5);
-  }
-  else {
-    warn "$0: ${filename}[${lineno}]: parse error: ${line}\n";
-    return;
-  }
+  return unless @names;
 
-  for my $pattern (map { parse_host_pattern $_ } @{$entry{patterns}}) {
-    next if not defined $pattern;
-    next if ($pattern->{negate});
-    if (not exists $record{hostname}) {
-      if ($pattern->{port} == 22) {
-        $record{hostname}=$pattern->{name};
+  for my $name (@names) {
+    if ($name =~ s{^\[(.+)\]:(\d+)$}{$1}) {
+      if (defined $port and $port != $2) {
+        warn "$0: ${filename}[$line]: multiple ports defined in the same line, using the first\n";
       }
       else {
-        $record{hostname}=$pattern->{name} . ':' . $pattern->{port};
+        $port=$2;
       }
-      $record{nodename}=$pattern->{name};
     }
-    push @{$entry{aliases}}, $pattern->{name} if ($pattern->{name} =~ m{[a-z]});
+    if (not exists $entry->{nodename}) {
+      $entry->{nodename}=$name;
+    }
+    elsif ($entry->{nodename} !~ m{[a-z]}i and $name =~ m{[a-z]}i) {
+      $entry->{nodename}=$name;
+    }
+  }
+  if (defined $port and $port != 22) {
+    $entry->{hostname}=sprintf '%s:%d', $entry->{nodename}, $port;
+  }
+  else {
+    $entry->{hostname}=$entry->{nodename};
   }
 
-  $entry{record}=\%record;
-  print $json->encode(\%entry), "\n";
-  return \%entry;
+  return $entry;
 
 }
 
@@ -100,8 +99,33 @@ while(@ARGV) {
     push @files, map { path $_ } @ARGV;
     undef @ARGV;
   }
+  elsif ($opt eq '--include-comment') {
+    $include_comment=1;
+  }
+  elsif ($opt eq '--no-include-comment') {
+    undef $include_comment;
+  }
+  elsif ($opt eq '--no-include-filename') {
+    undef $include_known_hosts_file;
+  }
+  elsif ($opt eq '--include-filename') {
+    $include_known_hosts_file=1;
+  }
+  elsif ($opt eq '--no-include-username') {
+    undef $include_username;
+  }
+  elsif ($opt eq '--include-username') {
+    $include_username=1;
+  }
   elsif ($opt eq '--username') {
     $username=shift @ARGV;
+    $include_username=1;
+  }
+  elsif ($opt eq '--include-ips') {
+    $include_ips=1;
+  }
+  elsif ($opt eq '--no-include-ips') {
+    undef $include_ips;
   }
   elsif ($opt =~ m{^-}) {
     die "$0: ${opt}: unknown option";
@@ -125,17 +149,28 @@ unless (defined $username) {
   }
 }
 
+my $prefix_removed;
 for my $file (@files) {
   my $lineno=0;
   for my $line ($file->lines_raw({chomp => 1})) {
     $lineno += 1;
     my $entry=parse_kh_entry $line, $file, $lineno;
     next unless defined $entry;
-    next unless exists $entry->{record};
-    my $record=$entry->{record};
-    my $nodename=$record->{nodename};
-    $nodes->[0]->{$nodename} = $record;
+    $entry->{known_hosts_file} = $file->stringify if $include_known_hosts_file;
+    $entry->{username} = $username if $include_username;
+    $nodes->{$entry->{nodename}} = $entry;
   }
 }
 
-print $nodes->write_string;
+printf "# Rundeck Nodes generated %s\n", scalar localtime;
+printf "---\n";
+for my $node (sort sort_by_nodename (keys %$nodes)) {
+  next if (not $include_ips and $node =~ m{^([\d\.]+|[\da-f]*:[\da-f]*)$}i);
+  printf "# %s\n", $nodes->{$node}->{_line} if ($include_comment);
+  printf "%s:\n", maybe_encode($node);
+  for my $key (sort keys %{$nodes->{$node}}) {
+    next if ($key =~ m{^_});
+    printf "  %s: %s\n", maybe_encode($key), maybe_encode($nodes->{$node}->{$key});
+  }
+  printf "\n";
+}
