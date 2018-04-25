@@ -1,6 +1,6 @@
 class RundeckCli < Formula
   desc "CLI tool for Rundeck, the Service Reliability Engineering platform"
-  homepage "http://www.rundeck.org/"
+  homepage "https://www.rundeck.com/"
   url "https://github.com/rundeck/rundeck-cli/archive/v1.0.22.tar.gz"
   sha256 "336a018ad9188a05ee5b92318408c19f32c7bd2f5d26076a2f2f612edfe5748e"
   head "https://github.com/rundeck/rundeck-cli.git", :branch => "master"
