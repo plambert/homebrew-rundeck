@@ -1,8 +1,8 @@
 class RundeckCli < Formula
   desc "CLI tool for Rundeck, the Service Reliability Engineering platform"
   homepage "https://www.rundeck.com/"
-  url "https://github.com/rundeck/rundeck-cli/archive/v1.0.25.tar.gz"
-  sha256 "74f5f7bbea0aa2d92a50e63e399251683c3aa4d662f0ccce7de287e2f94e502b"
+  url "https://github.com/rundeck/rundeck-cli/archive/v1.0.27.tar.gz"
+  sha256 "2a7808ec0d50b75f2706334c2434744968a3a573bbc00f417fb62518b2bbfd92"
   bottle do
     root_url "https://rundeckpro.bintray.com/homebrew-rundeck"
     cellar :any_skip_relocation
