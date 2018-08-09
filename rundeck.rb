@@ -2,65 +2,71 @@
 require "English"
 
 class Rundeck < Formula
-  @testing=false
-  @name='rundeck2'
-  @prebuilt=File.file?("#{ENV["HOME"]}/#{@name}.build.tgz")
+  @version='2.11.4'
+  @testing=true
+  @prebuilt=File.file?("#{ENV["HOME"]}/rundeck.build.tgz")
+  @url=nil
+  @sha256={
+    '2.11.4' => '0cfb4ae715301607ba2051f3e4a62945e42b781b4b52492c3e09f3139ad92265',
+    '2.11.1' => '492e3b2be62c1d032ae91594f5aad6021319cad1519befbae8ab471b7807b12a'
+  }
   desc "Enable self-service access to existing scripts and tools."
   homepage "http://rundeck.org"
   local_url="file://#{ENV["HOME"]}/rundeck.build.tgz"
-  remote_url="https://github.com/rundeck/rundeck/archive/v2.10.6.tar.gz"
+  remote_url="https://github.com/rundeck/rundeck/archive/v#{@version}.tar.gz"
 
   if @testing && @prebuilt
     url local_url
-    puts "==> Using #{local_url} in testing mode"
-    version "2.10.6"
+    version @version
+    @url=local_url
   else
     url remote_url
-    sha256 "b6dde4ae74ad00a3c2fac3b05f894cf3e2d9e7e8e27a118e64d15813619f4458"
-    puts "==> Using #{remote_url} in testing mode" if @testing
+    sha256 @sha256[@version]
+    @url=remote_url
   end
   depends_on :java => "1.8"
   def install
     # comment this line when testing
     if @testing && @prebuilt
       puts "==> using prebuilt tgz in testing mode"
+      puts "==> Using #{@url} in testing mode"
     else
-      puts "==> making app"
+      puts "==> Building from #{@url}"
       system "make", "app"
     end
     if @testing && !@prebuilt
       puts "==> creating prebuilt tgz in testing mode"
       system "tar", "-czf", "~/rundeck.build.tgz", "--exclude", ".brew*", "."
     end
-    libexec.install "rundeck-launcher/launcher/build/libs/#{@name}-launcher-#{version}.jar"
-    (var/@name).mkdir unless (var/@name).exist?
-    (var/"log").install_symlink (var/"#{@name}/server/logs") => @name
+    libexec.install "rundeck-launcher/launcher/build/libs/rundeck-launcher-#{version}.jar"
+    (var/"rundeck").mkdir unless (var/"rundeck").exist?
+    (var/"log").install_symlink (var/"rundeck/server/logs") => "rundeck"
     (
-      bin/"#{@name}-server"
+      bin/"rundeck-server"
     ).write <<~EOS
       #!/usr/bin/env bash
             
       # Launch Rundeck server
 
-      # You can set options in $(brew --prefix)/etc/#{@name}.conf
+      # You can set options in $(brew --prefix)/etc/rundeck.conf
 
       BREW_PREFIX="$(brew --prefix)" || exit $?
-      jarfile="#{prefix}/libexec/#{@name}-launcher-#{version}.jar"
+      jarfile="#{prefix}/libexec/rundeck-launcher-#{version}.jar"
 
-      # Get options from ${BREW_PREFIX}/etc/#{@name}.conf
+      # Get options from ${BREW_PREFIX}/etc/rundeck.conf
 
       declare -a opts
 
       export JAVA_HOME
 
-      RDECK_RDECK_BASE="${BREW_PREFIX}/var/#{@name}"
+      RDECK_RDECK_BASE="${BREW_PREFIX}/var/rundeck"
       RDECK_SERVER_HOSTNAME="localhost"
       RDECK_SERVER_HTTP_HOST=127.0.0.1
       RDECK_SERVER_HTTP_PORT=4440
 
-      if [[ -f "${BREW_PREFIX}/etc/#{@name}.conf" ]]; then
+      if [[ -f "${BREW_PREFIX}/etc/rundeck.conf" ]]; then
         # shellcheck disable=SC1090
-        source "${BREW_PREFIX}/etc/#{@name}.conf" || exit $?
+        source "${BREW_PREFIX}/etc/rundeck.conf" || exit $?
       fi
             
       add_opt_for_var() {
@@ -138,9 +144,36 @@ class Rundeck < Formula
         exit 3
       fi
 
-      exec java "${opts[@]}" -jar "$jarfile" "-b" "${BREW_PREFIX}/var/#{@name}" "$@"
+      exec java "${opts[@]}" -jar "$jarfile" "-b" "${BREW_PREFIX}/var/rundeck" "$@"
 
     EOS
+  end
+  def plist; <<~EOS
+    <?xml version="1.0" encoding="UTF-8"?>
+    <!DOCTYPE plist PUBLIC "-//Apple Computer//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+    <plist version="1.0">
+      <dict>
+        <key>Label</key>
+        <string>#{plist_name}</string>
+        <key>ProgramArguments</key>
+        <array>
+          <string>#{opt_bin}/rundeck-server</string>
+          <string>-f</string>
+        </array>
+        <key>KeepAlive</key>
+        <false/>
+        <key>RunAtLoad</key>
+        <true/>
+        <key>StandardErrorPath</key>
+        <string>/usr/local/var/log/rundeck</string>
+        <key>StandardOutPath</key>
+        <string>/usr/local/var/log/rundeck</string>
+      </dict>
+    </plist>
+    EOS
+  end
+  def caveats
+    "Edit #{etc}/rundeck.conf to configure Rundeck Server"
   end
   test do
     if File.file?("/usr/local/bin/shellcheck")

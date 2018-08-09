@@ -1,0 +1,12 @@
+{
+	"folders":
+	[
+		{
+			"path": "."
+		}
+	],
+	"env":
+	{
+		"PATH" : "/Users/plambert/.rbenv/shims:/Users/plambert/bin:/Users/plambert/Dropbox/Private/bin:/Users/plambert/.perlbrew/libs/perl-5.26.1@plambert/bin:/Users/plambert/Library/Perlbrew/bin:/Users/plambert/Library/Perlbrew/perls/perl-5.26.1/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/Applications/VMware Fusion.app/Contents/Public:/Library/Frameworks/Mono.framework/Versions/Current/Commands:/usr/local/sbin:/Users/plambert/Library/Go/bin:/usr/local/opt/go/libexec/bin"
+	}
+}
