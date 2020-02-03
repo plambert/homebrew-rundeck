@@ -1,35 +1,16 @@
 # WARNING: THIS IS A DEVELOPMENT-ONLY VERSION OF THIS FORMULA, IT DOES NOT WORK!
 
 class Rundeck < Formula
-  @@testing=true
-  @@prebuilt=File.file?("#{ENV['HOME']}/rundeck.build.tgz")
   desc "Enable self-service access to existing scripts and tools."
   homepage "http://rundeck.org"
   local_url="file://#{ENV['HOME']}/rundeck.build.tgz"
   remote_url="https://github.com/rundeck/rundeck/archive/v2.10.6.tar.gz"
 
-  if @@testing and @@prebuilt
-    url local_url
-    puts "==> Using #{local_url} in testing mode"
-    version "2.10.6"
-  else
-    url remote_url
-    sha256 "b6dde4ae74ad00a3c2fac3b05f894cf3e2d9e7e8e27a118e64d15813619f4458"
-    puts "==> Using #{remote_url} in testing mode" if @@testing
-  end
+  url remote_url
+  sha256 "b6dde4ae74ad00a3c2fac3b05f894cf3e2d9e7e8e27a118e64d15813619f4458"
   depends_on :java => "1.8"
   def install
-    # comment this line when testing
-    if @@testing and @@prebuilt
-      puts "==> using prebuilt tgz in testing mode"
-    else
-      puts "==> making app"
-      system "make", "app"
-    end
-    if @@testing and ! @@prebuilt
-      puts "==> creating prebuilt tgz in testing mode"
-      system 'tar', '-czf', '~/rundeck.build.tgz', '--exclude', '.brew*', '.'
-    end
+    system "make", "app"
     libexec.install "rundeck-launcher/launcher/build/libs/rundeck-launcher-#{version}.jar"
     (var/"rundeck").mkdir #/ # fix sublime text ruby parser
     (
